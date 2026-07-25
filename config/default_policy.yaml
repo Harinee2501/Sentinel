@@ -1,0 +1,35 @@
+# Example policy configuration for the Sentinel Policy Engine.
+# Each rule is matched against Action.tool. If no rule matches a tool,
+# `default_verdict` is applied.
+
+default_verdict: block  # fail closed: unknown tools are blocked by default
+
+rules:
+  - tool: write_file
+    allowed_scopes:
+      - "sandbox"          # write_file args["path"] must fall under this prefix
+    rate_limit_per_minute: 20
+
+  - tool: read_file
+    allowed_scopes:
+      - "/sandbox"
+      - "/data"
+    rate_limit_per_minute: 60
+
+  - tool: run_shell_cmd
+    blocked_commands:
+      - "rm -rf"
+      - "curl"
+      - "wget"
+      - "sudo"
+    rate_limit_per_minute: 10
+
+  - tool: send_email
+    blocked_domains:
+      - "example-attacker.com"
+    rate_limit_per_minute: 5
+
+  - tool: call_api
+    allowed_scopes:
+      - "https://api.internal-service.com"
+    rate_limit_per_minute: 30
