@@ -12,7 +12,7 @@ rules:
 
   - tool: read_file
     allowed_scopes:
-      - "/sandbox"
+      - "sandbox"
       - "/data"
     rate_limit_per_minute: 60
 

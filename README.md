@@ -114,15 +114,49 @@ agent-sentinel dashboard
 
 ## Known limitations
 
-- LLM Judge error handling covers JSON parsing failures; broader API
-  failures fail closed but aren't yet independently tested.
-- Rate limiting is in-memory only — would need Redis to survive restarts
-  or scale across processes.
-- The MCP proxy currently intercepts `tools/call` only; other MCP methods
-  pass through untouched.
-- The semantic judge can itself be fooled by sufficiently subtle attacks —
-  a known open problem in AI safety, not something this project claims to
-  have solved. Sentinel is one layer of defense-in-depth, not a guarantee.
+- **LLM Judge reliability on ambiguous inputs:** stress-testing one
+  borderline legitimate action with 20 repeated judge calls (same input,
+  temperature=0) showed only 40% consistent correct classification. Two
+  distinct failure modes were identified: (1) intermittent empty API
+  responses from the underlying model, persisting even after one retry,
+  and (2) occasional hallucination of unstated task requirements (e.g.
+  inferring "must include an attachment" when none was specified). This
+  is a genuine limitation of using a small, fast open-weight model as the
+  semantic judge — not a bug in Sentinel's own logic — and underscores
+  that the Judge layer should be treated as probabilistic, not
+  deterministic, in any production deployment.
+- Full test-suite evaluation (N=27, 6 categories) showed 100% attack catch
+  rate across 5 independent runs, with false-positive rate concentrated
+  entirely on the single ambiguous case described above (0-25% depending
+  on run, averaging ~7.5%).
+  
+## Latency under load
+
+Benchmarked at concurrency levels 1/5/10/20 (30 requests each), split by
+whether the request resolves at the Policy Engine alone or reaches the
+LLM Judge:
+
+| Path | Concurrency=1 (p50) | Concurrency=20 (p50) |
+|---|---|---|
+| Policy Engine only | 5.1 ms | 62.7 ms |
+| Full pipeline (LLM Judge) | 589 ms | 8,901 ms |
+
+**Finding:** Policy Engine latency stays low at p50 but shows tail-latency
+growth (p95 rising from ~8ms to ~330ms) under concurrent load, consistent
+with lock contention in the in-memory rate limiter — a known limitation
+that would benefit from a concurrent-safe store (e.g. Redis) in a
+multi-process deployment.
+
+**Finding:** LLM Judge latency degrades sharply under concurrency — p50
+jumps from 589ms at single-request to 6.8-8.9 seconds at 5+ concurrent
+requests, then plateaus rather than scaling linearly. This pattern is
+consistent with hitting Groq API-side rate limits/connection ceilings,
+not a bottleneck in Sentinel's own code. **This means the system's
+real-world throughput ceiling is currently bound by the external LLM
+provider, not the guardrail engine itself** — a critical consideration
+for any production deployment, which would need either a higher-tier
+API plan, request queuing/backpressure, or a self-hosted judge model to
+scale beyond low concurrency.
 
 ## License
 

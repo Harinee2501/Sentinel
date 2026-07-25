@@ -45,31 +45,34 @@ class LLMJudge:
     def evaluate(self, action: Action) -> Verdict:
         prompt = self._build_prompt(action)
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                max_tokens=300,
-                temperature=0.0,
-                messages=[
-                    {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-            raw_text = response.choices[0].message.content.strip()
+        for attempt in range(2):  # try once, retry once on empty/malformed response
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=300,
+                    temperature=0,
+                    messages=[
+                        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                raw_text = response.choices[0].message.content.strip()
+                if not raw_text:
+                    raise json.JSONDecodeError("Empty response", raw_text, 0)
 
-            # Strip markdown code fences if the model added them despite instructions
-            if raw_text.startswith("```"):
-                raw_text = raw_text.strip("`")
-                if raw_text.startswith("json"):
-                    raw_text = raw_text[4:].strip()
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.strip("`")
+                    if raw_text.startswith("json"):
+                        raw_text = raw_text[4:].strip()
 
-            parsed = json.loads(raw_text)
-            approved = bool(parsed["approved"])
-            reason = str(parsed["reason"])
-
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            approved = False
-            reason = f"Judge call failed ({type(e).__name__}: {e}); failing closed."
+                parsed = json.loads(raw_text)
+                approved = bool(parsed["approved"])
+                reason = str(parsed["reason"])
+                break
+            except Exception as e:
+                approved = False
+                reason = f"Judge call failed on attempt {attempt + 1} ({type(e).__name__}: {e}); failing closed."
+                continue
 
         return Verdict(
             action_id=action.action_id,
