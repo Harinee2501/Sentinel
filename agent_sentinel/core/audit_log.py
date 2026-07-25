@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+import os
 
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -30,6 +31,9 @@ class AuditLogEntry(SQLModel, table=True):
 
 class AuditLog:
     def __init__(self, db_path: str = "data/audit_log.db"):
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self.engine = create_engine(f"sqlite:///{db_path}")
         SQLModel.metadata.create_all(self.engine)
 
